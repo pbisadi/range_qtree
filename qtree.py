@@ -11,13 +11,35 @@ class Point:
 
 
 class Node:
-    def __init__(self, x0, y0, w, h, points):
-        self.x0 = x0
-        self.y0 = y0
-        self.width = w
-        self.height = h
-        self.points = points
-        self.children = []
+    def __init__(self, df, c, coordinate_cols, indexes, width, threshold):
+        """
+        Store the row indexes in df balanced based on the center point and coordinate_cols of those rows.
+        Each node has a N-dimensional box assigned to it which has upper and lower bound with equal distance
+        to the center point (Width).
+
+        Args:
+            df(DataFrame): The DataFrame containing the coordinate columns and the data.
+            c: The coordinates of the center point. It does not need to be one of coordinates
+            coordinate_cols(List): The list of coordinate columns in df parameter.
+            indexes(List): Indexes of rows in df that must be assign to this Node.
+            width(List): The distance between the center point and upper and lower bound
+            threshold: Maximum number of points that each leaf node can store
+        """
+
+        self.c = c
+        """The coordinates of the center point"""
+
+        self.width = width
+        """The distance from center """
+
+        if len(indexes) <= threshold:
+            self.indexes = indexes
+        else:
+            # TODO: https://stackoverflow.com/questions/42464514/how-to-convert-bitarray-to-an-integer-in-python
+            self.children = [None] * (2 ** len(c))
+            """Contains 2 ^ D children"""
+
+
 
 
 def recursive_to_quad(node, threshold):
@@ -87,13 +109,20 @@ def find_children(node):
 
 
 class QTree:
-    def __init__(self, k, n=None, points=None):
-        self.threshold = k
-        self.points = points if points else [Point(random.normal(0, 2), random.normal(0, 2)) for x in range(n)]
-        min_x = min([p.x for p in self.points])
-        min_y = min([p.y for p in self.points])
-        max_x = max([p.x for p in self.points])
-        max_y = max([p.y for p in self.points])
+    def __init__(self, df, coordinate_cols, leaf_points_limit=100):
+        """
+
+        Args:
+            df(DataFrame): the DataFrame containing the coordinate columns and the data
+            coordinate_cols(List): the list of coordinate column names in df parameter
+            leaf_points_limit: maximum number of points that each leaf node can store
+        """
+        self.threshold = leaf_points_limit
+        self.df = df
+        min_x = self.df[coordinate_cols[0]].min()
+        min_y = self.df[coordinate_cols[1]].min()
+        max_x = self.df[coordinate_cols[0]].max()
+        max_y = self.df[coordinate_cols[1]].max()
         self.root = Node(min_x, min_y, max_x-min_x, max_y-min_y, self.points)
         recursive_to_quad(self.root, self.threshold)
 
@@ -133,6 +162,6 @@ class QTree:
 
 
 if __name__ == '__main__':
-    qt = QTree(10, 2000)
+    qt = QTree([Point(random.normal(0, 2), random.normal(0, 2)) for x in range(200)], 10)
     qt.graph()
     print('Done')
