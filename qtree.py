@@ -2,16 +2,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.random as random
 from matplotlib import patches
-
-
-class Point:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
+from bitarray import bitarray
+import struct
 
 
 class Node:
-    def __init__(self, df, c, coordinate_cols, indexes, width, threshold):
+    def __init__(self, df, dimension_cols, data_point_indexes=None, widths=None, threshold=100):
         """
         Store the row indexes in df balanced based on the center point and coordinate_cols of those rows.
         Each node has a N-dimensional box assigned to it which has upper and lower bound with equal distance
@@ -19,75 +15,72 @@ class Node:
 
         Args:
             df(DataFrame): The DataFrame containing the coordinate columns and the data.
-            c: The coordinates of the center point. It does not need to be one of coordinates
-            coordinate_cols(List): The list of coordinate columns in df parameter.
-            indexes(List): Indexes of rows in df that must be assign to this Node.
-            width(List): The distance between the center point and upper and lower bound
+            dimension_cols(List): The list of coordinate columns in df parameter.
+            data_point_indexes(List): Indexes of rows in df that must be assign to this Node.
+                All rows will be considered if None is passed in.
+            widths(List): The distance between the center point and upper and lower bound.
+                Will be calculated based on the minimum and maximum values of each dimension column it it is None.
             threshold: Maximum number of points that each leaf node can store
         """
+        if not data_point_indexes:
+            data_point_indexes = df.index.to_list()
 
-        self.c = c
+        minimums = df[dimension_cols].iloc[data_point_indexes].min()
+        maximums = df[dimension_cols].iloc[data_point_indexes].max()
+
+        self.center = [(l + u) / 2 for (l, u) in zip(minimums, maximums)]
         """The coordinates of the center point"""
 
-        self.width = width
-        """The distance from center """
+        self.widths = widths if widths else [(u - l) / 2 for (l, u) in zip(minimums, maximums)]
+        """The distances from center"""
 
-        if len(indexes) <= threshold:
-            self.indexes = indexes
+        self.threshold = threshold
+        """Maximum number of points that each leaf node can store"""
+
+        self.df = df
+        """The DataFrame storing the data including the coordinates columns"""
+
+        self.coordinate_cols = dimension_cols
+        """List of columns defining the dimensions for each data point coordination in order"""
+
+        if len(data_point_indexes) <= threshold:
+            self.indexes = data_point_indexes
         else:
-            # TODO: https://stackoverflow.com/questions/42464514/how-to-convert-bitarray-to-an-integer-in-python
-            self.children = [None] * (2 ** len(c))
+            self.children = [None] * (2 ** len(self.center))
             """Contains 2 ^ D children"""
 
+            segregated_indexes = []
+            for _ in range(2 ** len(self.center)):
+                segregated_indexes.append(list())
 
+            for idx in data_point_indexes:
+                segregated_indexes[self._get_child_idx(idx)].append(idx)
 
+            # TODO: Use decimal for more accuracy
+            child_widths = [w / 2 for w in self.widths]
+            for i in range(len(segregated_indexes)):
+                self.children[i] = Node(df, dimension_cols, segregated_indexes[i], child_widths, threshold)
 
-def recursive_to_quad(node, threshold):
-    """
-    Recursively split the node into 4 quads. top-left, top-right, bottom-left and bottom-right of the center point
+    def _get_child_idx(self, data_point_idx: int) -> int:
+        """
+        Return the index of the child which provided data_point belongs to.
+        This function is the core logic of QTree data structure
 
-    Args:
-        node: QTree Node to be split if its data point count is higher than the threshold
-        threshold: Data point count threshold
-    """
-    if len(node.points) <= threshold:
-        return
+        Args:
+            data_point_idx: The index of the data point in self.df
 
-    w_ = float(node.width / 2)
-    h_ = float(node.height / 2)
-    c = Point(node.x0 + w_, node.y0 + h_)
+        Returns:
+             int: The index of the chile that contains (or must) the provided data_point_idx
 
-    bottom_left = []
-    bottom_right = []
-    top_left = []
-    top_right = []
+        """
+        # TODO: Think of a way to calculate the child indexes as a batch instead of one by one.
+        #       For example address coordination columns in df
 
-    for p in node.points:
-        if p.x < c.x:
-            if p.y < c.y:
-                bottom_left.append(p)
-            else:
-                top_left.append(p)
-        else:
-            if p.y < c.y:
-                bottom_right.append(p)
-            else:
-                top_right.append(p)
-
-    node.points = None
-    x1 = Node(node.x0, node.y0, w_, h_, bottom_left)
-    recursive_to_quad(x1, threshold)
-
-    x2 = Node(node.x0, node.y0 + h_, w_, h_, top_left)
-    recursive_to_quad(x2, threshold)
-
-    x3 = Node(node.x0 + w_, node.y0, w_, h_, bottom_right)
-    recursive_to_quad(x3, threshold)
-
-    x4 = Node(node.x0 + w_, node.y0 + h_, w_, h_, top_right)
-    recursive_to_quad(x4, threshold)
-
-    node.children = [x1, x2, x3, x4]
+        child_index = 0
+        for i in range(len(self.coordinate_cols)):
+            child_index = (child_index << 1) | int(
+                self.center[i] <= self.df[self.coordinate_cols[i]].iloc[data_point_idx])
+        return child_index
 
 
 def contains(x, y, w, h, points):
@@ -119,12 +112,8 @@ class QTree:
         """
         self.threshold = leaf_points_limit
         self.df = df
-        min_x = self.df[coordinate_cols[0]].min()
-        min_y = self.df[coordinate_cols[1]].min()
-        max_x = self.df[coordinate_cols[0]].max()
-        max_y = self.df[coordinate_cols[1]].max()
-        self.root = Node(min_x, min_y, max_x-min_x, max_y-min_y, self.points)
-        recursive_to_quad(self.root, self.threshold)
+
+        self.root = Node(df, coordinate_cols)
 
     def aggregate_nodes(self):
         pass
@@ -154,7 +143,7 @@ class QTree:
         query_point = np.array([2, 2])
         query_radius = 2
         ax.add_artist(plt.Circle(tuple(query_point), query_radius, color='#FF000033'))
-        within_circle = [p for p in self.points if np.linalg.norm(np.array([p.x, p.y])-query_point) < query_radius]
+        within_circle = [p for p in self.points if np.linalg.norm(np.array([p.x, p.y]) - query_point) < query_radius]
         x = [point.x for point in within_circle]
         y = [point.y for point in within_circle]
         plt.plot(x, y, 'r.', markersize=3)

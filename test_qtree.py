@@ -3,12 +3,12 @@ import string
 import pandas
 import pytest
 import numpy.random as random
-from qtree import QTree, Point, Node
+from qtree import QTree, Node
 
 
 @pytest.fixture(scope="module")
 def data_frame():
-    row_count = 200
+    row_count = 2000
     return pandas.DataFrame({
         'x': [random.normal(0, 2) for _ in range(row_count)],
         'y': [random.normal(0, 2) for _ in range(row_count)],
@@ -16,8 +16,7 @@ def data_frame():
     })
 
 
-def test_qtree_initialize():
-    qt = QTree([Point(random.normal(0, 2), random.normal(0, 2)) for x in range(200)], 10)
+# TODO: Add additional basic tests
 
 
 def test_data_frame(data_frame):
